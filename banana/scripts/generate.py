@@ -7,12 +7,14 @@ Uses only Python stdlib (no pip dependencies).
 Usage:
     generate.py --prompt "a cat in space" [--aspect-ratio 16:9] [--resolution 1K]
                 [--model MODEL] [--api-key KEY] [--thinking LEVEL] [--image-only]
+                [--project PROJECT_NAME]
 """
 
 import argparse
 import base64
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -22,7 +24,7 @@ from pathlib import Path
 DEFAULT_MODEL = "gemini-3.1-flash-image-preview"
 DEFAULT_RESOLUTION = "2K"  # Must be uppercase -- lowercase values are silently rejected by the API
 DEFAULT_RATIO = "1:1"
-OUTPUT_DIR = Path.home() / "Documents" / "nanobanana_generated"
+OUTPUT_BASE = Path.home() / "Documents" / "nanobanana_generated"
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 VALID_RATIOS = {"1:1", "16:9", "9:16", "4:3", "3:4", "2:3", "3:2",
@@ -30,8 +32,18 @@ VALID_RATIOS = {"1:1", "16:9", "9:16", "4:3", "3:4", "2:3", "3:2",
 VALID_RESOLUTIONS = {"512", "1K", "2K", "4K"}
 
 
+def resolve_output_dir(project: str | None) -> Path:
+    """Build output path: OUTPUT_BASE/<project>/<YYYY-MM-DD>/"""
+    if not project:
+        project = Path.cwd().name
+    # Sanitize: lowercase, replace spaces/special chars with underscore
+    project = re.sub(r"[^\w\-]", "_", project).strip("_") or "default"
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    return OUTPUT_BASE / project / date_str
+
+
 def generate_image(prompt, model, aspect_ratio, resolution, api_key,
-                   thinking_level=None, image_only=False):
+                   thinking_level=None, image_only=False, project=None):
     """Call Gemini API to generate an image."""
     url = f"{API_BASE}/{model}:generateContent?key={api_key}"
 
@@ -109,11 +121,12 @@ def generate_image(prompt, model, aspect_ratio, resolution, api_key,
         print(json.dumps({"error": True, "message": f"No image in response. finishReason: {finish_reason}"}))
         sys.exit(1)
 
-    # Save image
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Save image: <project>/<YYYY-MM-DD>/banana_<timestamp>.png
+    output_dir = resolve_output_dir(project)
+    output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"banana_{timestamp}.png"
-    output_path = (OUTPUT_DIR / filename).resolve()
+    output_path = (output_dir / filename).resolve()
 
     with open(output_path, "wb") as f:
         f.write(base64.b64decode(image_data))
@@ -136,6 +149,7 @@ def main():
     parser.add_argument("--api-key", default=None, help="Google AI API key (or set GOOGLE_AI_API_KEY env)")
     parser.add_argument("--thinking", default=None, choices=["minimal", "low", "medium", "high"], help="Thinking level")
     parser.add_argument("--image-only", action="store_true", help="Return image only (no text)")
+    parser.add_argument("--project", default=None, help="Project name for output folder (default: current directory name)")
 
     args = parser.parse_args()
 
@@ -160,6 +174,7 @@ def main():
         api_key=api_key,
         thinking_level=args.thinking,
         image_only=args.image_only,
+        project=args.project,
     )
     print(json.dumps(result, indent=2))
 

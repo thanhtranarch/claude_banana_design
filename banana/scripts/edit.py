@@ -6,13 +6,14 @@ Uses only Python stdlib (no pip dependencies).
 
 Usage:
     edit.py --image path/to/image.png --prompt "remove the background"
-            [--model MODEL] [--api-key KEY]
+            [--model MODEL] [--api-key KEY] [--project PROJECT_NAME]
 """
 
 import argparse
 import base64
 import json
 import os
+import re
 import sys
 import time
 import urllib.request
@@ -20,11 +21,20 @@ from datetime import datetime
 from pathlib import Path
 
 DEFAULT_MODEL = "gemini-3.1-flash-image-preview"
-OUTPUT_DIR = Path.home() / "Documents" / "nanobanana_generated"
+OUTPUT_BASE = Path.home() / "Documents" / "nanobanana_generated"
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
-def edit_image(image_path, prompt, model, api_key):
+def resolve_output_dir(project: str | None) -> Path:
+    """Build output path: OUTPUT_BASE/<project>/<YYYY-MM-DD>/"""
+    if not project:
+        project = Path.cwd().name
+    project = re.sub(r"[^\w\-]", "_", project).strip("_") or "default"
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    return OUTPUT_BASE / project / date_str
+
+
+def edit_image(image_path, prompt, model, api_key, project=None):
     """Call Gemini API to edit an image."""
     image_path = Path(image_path).resolve()
     if not image_path.exists():
@@ -115,11 +125,12 @@ def edit_image(image_path, prompt, model, api_key):
         print(json.dumps({"error": True, "message": f"No image in response. finishReason: {finish_reason}"}))
         sys.exit(1)
 
-    # Save image
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # Save image: <project>/<YYYY-MM-DD>/banana_edit_<timestamp>.png
+    output_dir = resolve_output_dir(project)
+    output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     filename = f"banana_edit_{timestamp}.png"
-    output_path = (OUTPUT_DIR / filename).resolve()
+    output_path = (output_dir / filename).resolve()
 
     with open(output_path, "wb") as f:
         f.write(base64.b64decode(image_data))
@@ -138,6 +149,7 @@ def main():
     parser.add_argument("--prompt", required=True, help="Edit instruction")
     parser.add_argument("--model", default=DEFAULT_MODEL, help=f"Model ID (default: {DEFAULT_MODEL})")
     parser.add_argument("--api-key", default=None, help="Google AI API key (or set GOOGLE_AI_API_KEY env)")
+    parser.add_argument("--project", default=None, help="Project name for output folder (default: current directory name)")
 
     args = parser.parse_args()
 
@@ -151,6 +163,7 @@ def main():
         prompt=args.prompt,
         model=args.model,
         api_key=api_key,
+        project=args.project,
     )
     print(json.dumps(result, indent=2))
 
